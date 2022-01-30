@@ -28,6 +28,8 @@
 #define UAVCAN_CPP11    2011
 #define UAVCAN_CPP03    2003
 
+#  define UAVCAN_CPP_VERSION    UAVCAN_CPP11
+
 #ifndef UAVCAN_CPP_VERSION
 # if __cplusplus > 201200
 #  error Unsupported C++ standard. You can explicitly set UAVCAN_CPP_VERSION=UAVCAN_CPP11 to silence this error.
