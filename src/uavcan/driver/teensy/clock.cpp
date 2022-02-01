@@ -33,6 +33,7 @@
 
 namespace uavcan {
 
+namespace {
 /* 64 bit version of micros() to avoid rollover */
 uint64_t micros64() {
   static uint32_t low32, high32;
@@ -42,6 +43,8 @@ uint64_t micros64() {
   }
   low32 = new_low32;
   return((uint64_t) high32 << 32 | low32);
+}
+
 }
 
 MonotonicTime Clock::getMonotonic() const {
