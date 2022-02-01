@@ -25,13 +25,20 @@ if (DEFINED MCU)
     GIT_TAG v3.0.2
   )
   FetchContent_MakeAvailable(core)
-  # Fetch easycan
+  # Fetch flexcan
   FetchContent_Declare(
-    easycan
-    GIT_REPOSITORY https://github.com/bolderflight/easycan.git
+    flexcan
+    GIT_REPOSITORY https://github.com/bolderflight/flexcan.git
     GIT_TAG v1.0.0
   )
-  FetchContent_MakeAvailable(easycan)
+  FetchContent_MakeAvailable(flexcan)
+  # Fetch circle_buf
+  FetchContent_Declare(
+    circle_buf
+    GIT_REPOSITORY https://github.com/bolderflight/circle_buf.git
+    GIT_TAG v4.0.3
+  )
+  FetchContent_MakeAvailable(circle_buf)
   # Add the library target
   file(GLOB_RECURSE dronecan_SRC CONFIGURE_DEPENDS "src/*.h" "src/*.cpp" "src/*.hpp")
   add_library(dronecan ${dronecan_SRC})
@@ -39,13 +46,15 @@ if (DEFINED MCU)
   target_link_libraries(dronecan
     PUBLIC
       core
-      easycan
+      flexcan
+      circle_buf
   )
   # Setup include directories 
   target_include_directories(dronecan PUBLIC 
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
     $<INSTALL_INTERFACE:include>
   )
+
   # Example and test if this project is built separately
   if (PROJECT_NAME STREQUAL CMAKE_PROJECT_NAME)
     # Add the publisher example target
