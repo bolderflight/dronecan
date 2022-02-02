@@ -37,20 +37,6 @@ namespace uavcan {
 /* Utilities needed to route messages from interrupt */
 namespace internal {
 
-/* CAN message structure */
-struct CanMsg {
-  struct {
-    bool extended = 0;
-    bool remote = 0;
-    bool overrun = 0;
-  } flags;
-  uint8_t len = 8;
-  uint8_t buf[8] = {0};
-  uint32_t id;
-  MonotonicTime monotonic_timestamp;
-  UtcTime sync_timestamp;
-};
-
 /*
 * Maximum number of buses, really it's 3, but on Teensy 4.x, the buses are
 * numbered CAN1, CAN2, CAN3 instead of base 0.
@@ -62,16 +48,13 @@ static constexpr int8_t MAX_IFACE_INDEX_ = MAX_NUM_IFACE_ - 1;
 class UavCanIface : public ICanIface {
   friend class UavCanRouter;
  public:
-  /* Initializes the CAN interface */
-  virtual bool begin(const int32_t baud) = 0;
-  /* Returns # of slots available to send messages */
-  virtual int16_t available_to_send() = 0;
-  /* Returns # of slots available to receive messages */
-  virtual int16_t available_to_read() = 0;
+  /* Returns true if available to send a message */
+  virtual bool available_to_send() = 0;
+  /* Returns true if message sitting in read buffer */
+  virtual bool available_to_read() = 0;
 
  protected:
-  /* OnReceive and OnTransmit interrupt handlers */
-  virtual void OnReceive(const CAN_message_t &msg) = 0;
+  /* OnTransmit interrupt handlers */
   virtual void OnTransmit() = 0;
 };
 
@@ -88,11 +71,6 @@ class UavCanRouter {
     return true;
   }
 
-  /* Routes received CAN_message_t to the correct UavCanIface derived class */
-  void RouteRx(const CAN_message_t &msg) {
-    iface_[msg.bus]->OnReceive(msg);
-  }
-
   /* Routes on transmit interrupts to the correct UavCanIface derived class */
   void RouteTx(const CAN_message_t &msg) {
     iface_[msg.bus]->OnTransmit();
@@ -102,10 +80,6 @@ class UavCanRouter {
   std::array<UavCanIface *, MAX_NUM_IFACE_> iface_;
 } uav_can_router;
 
-/* Handles RX interrupts from FlexCAN_T4 */
-void RxHandler(const CAN_message_t &msg) {
-  uav_can_router.RouteRx(msg);
-}
 /* Handles TX interrupts from FlexCAN_T4 */
 void TxHandler(const CAN_message_t &msg) {
   uav_can_router.RouteTx(msg);
@@ -118,83 +92,60 @@ template<CAN_DEV_TABLE BUS>
 class CanIface : public internal::UavCanIface {
  public:
   CanIface() {
-    /* Figure out our bus number */
-    #if defined(__IMXRT1062__)
-    if (BUS == CAN1) {
-      bus_num_ = 1;
-      irq_ = IRQ_CAN1;
-    } else if (BUS == CAN2) {
-      bus_num_ = 2;
-      irq_ = IRQ_CAN2;
-    } else if (BUS == CAN3) {
-      bus_num_ = 3;
-      irq_ = IRQ_CAN3;
-    }
-    #elif defined(__MK20DX256__)
+    /* Figuring out the bus number */
     if (BUS == CAN0) {
       bus_num_ = 0;
-      irq_ = IRQ_CAN_MESSAGE;
-    }
-    #elif defined(__MK64FX512__)
-    if (BUS == CAN0) {
-      bus_num_ = 0;
-      irq_ = IRQ_CAN0_MESSAGE;
-    }
-    #elif defined(__MK66FX1M0__)
-    if (BUS == CAN0) {
-      bus_num_ = 0;
-      irq_ = IRQ_CAN0_MESSAGE;
     } else if (BUS == CAN1) {
       bus_num_ = 1;
-      irq_ = IRQ_CAN1_MESSAGE;
+    } else if (BUS == CAN2) {
+      bus_num_ = 2;
+    } else if (BUS == CAN3) {
+      bus_num_ = 3;
     }
-    #endif
   }
 
-  /* Enables using the alternate pins */
-  void SetRx(FLEXCAN_PINS pin = DEF) {can_.setRx(pin);}
-  void SetTx(FLEXCAN_PINS pin = DEF) {can_.setTx(pin);}
-
-  /* Initializes the interface */
-  bool begin(const int32_t baud) {
+  /* Initialize CAN bus */
+  void begin() {
+    /* Initialize CAN */
     can_.begin();
-    can_.setBaudRate(baud);
-    can_.setRFFN(RFFN_32);        // 32 FIFO filters
-    can_.enableFIFO();            // enable FIFO
-    can_.setMRP(0);               // prioritize FIFO
-    can_.enableFIFOInterrupt();   // enable the FIFO interrupt
-    /* Register with router */
-    if (!internal::uav_can_router.Register(bus_num_, this)) {
-      return false;
+    /* Setup mailboxes */
+    can_.setMaxMB(MAX_NUM_MB_);
+    for (uint8_t i = 0; i < MAX_NUM_RX_MB_; i++) {
+      can_.setMB(static_cast<FLEXCAN_MAILBOX>(i), RX, EXT);
     }
-    /* Register interrupt handlers */
-    can_.onReceive(FIFO, internal::RxHandler);
+    can_.setMB(static_cast<FLEXCAN_MAILBOX>(TX_MB_), TX);
+    /* Register with router */
+    internal::uav_can_router.Register(bus_num_, this);
+    /* Register interrupts */
     can_.onTransmit(internal::TxHandler);
-    return true;
   }
 
-  /* Returns # of slots available to send messages */
-  int16_t available_to_send() {
-    int16_t ret;
-    NVIC_DISABLE_IRQ(irq_);
-    ret = tx_buf_.capacity() - tx_buf_.size();
-    NVIC_ENABLE_IRQ(irq_);
-    return ret;
-  }
+  /* Set alternative TX and RX pins */
+  void setTX(FLEXCAN_PINS pin = DEF) {can_.setTX(pin);}
+  void setRX(FLEXCAN_PINS pin = DEF) {can_.setRX(pin);}
 
-  /* Returns # of slots available to receive messages */
-  int16_t available_to_read() {
-    int16_t ret;
-    NVIC_DISABLE_IRQ(irq_);
-    ret = rx_buf_.size();
-    NVIC_ENABLE_IRQ(irq_);
-    return ret;
-  }
+  /* Set the baudrate */
+  void setBaudRate(const int32_t baud) {can_.setBaudRate(baud);}
 
   /* Returns true if the TX mailbox is ready to transmit */
   bool tx_ready() {
-    return (FLEXCAN_get_code(FLEXCANb_MBn_CS(BUS, TX_MB_NUM_)) ==
+    return (FLEXCAN_get_code(FLEXCANb_MBn_CS(BUS, TX_MB_)) ==
             FLEXCAN_MB_CODE_TX_INACTIVE);
+  }
+
+  /* Returns slots available in send message buffer */
+  bool available_to_send() {
+    return (tx_buf_.capacity() - tx_buf_.size()) > 0;
+  }
+
+  /* Returns number of message available to read */
+  bool available_to_read() {
+    bool ret = false;
+    if (can_.read(temp_msg_) > 0) {
+      ret = true;
+      rx_msg_ = ConvertMessage(temp_msg_);
+    }
+    return ret;
   }
 
   /*
@@ -227,17 +178,14 @@ class CanIface : public internal::UavCanIface {
     tx_msg_.monotonic_timestamp = tx_deadline;
     /* Check to see if we can transmit immediately */
     if (tx_ready()) {
-      can_.write(static_cast<FLEXCAN_MAILBOX>(TX_MB_NUM_),
+      can_.write(static_cast<FLEXCAN_MAILBOX>(TX_MB_),
                  ConvertMessage(tx_msg_));
       return 1;
     } else {
-      int16_t ret;
-      NVIC_DISABLE_IRQ(irq_);
-      ret = tx_buf_.Write(tx_msg_);
-      NVIC_ENABLE_IRQ(irq_);
-      return ret;
+      return tx_buf_.Write(tx_msg_);
     }
   }
+
   /*
   * Non-blocking reception.
   *
@@ -259,35 +207,23 @@ class CanIface : public internal::UavCanIface {
   */
   int16_t receive(CanFrame& out_frame, MonotonicTime& out_ts_monotonic,
                   UtcTime& out_ts_utc, CanIOFlags& out_flags) {
-    NVIC_DISABLE_IRQ(irq_);
-    bfs::optional<internal::CanMsg> read_val = rx_buf_.Read();
-    NVIC_ENABLE_IRQ(irq_);
-    
-    if (read_val) {
-      if (read_val.value().flags.overrun) {
-        error_counter_++;
-        return -1;
-      } else {
-        out_ts_monotonic = read_val.value().monotonic_timestamp;
-        out_ts_utc = read_val.value().sync_timestamp;
-        out_frame.id = read_val.value().id;
-        if (read_val.value().flags.extended) {
-          out_frame.id &= uavcan::CanFrame::MaskExtID;
-          out_frame.id |= uavcan::CanFrame::FlagEFF;
-        }
-        if (read_val.value().flags.remote) {
-          out_frame.id |= uavcan::CanFrame::FlagRTR;
-        }
-        out_frame.dlc = read_val.value().len;
-        for (int8_t i = 0; i < out_frame.dlc; i++) {
-          out_frame.data[i] = read_val.value().buf[i];
-        }
-        return 1;
-      }
-    } else {
-      return 0;
+    out_ts_monotonic = rx_msg_.monotonic_timestamp;
+    out_ts_utc = rx_msg_.sync_timestamp;
+    out_frame.id = rx_msg_.id;
+    if (rx_msg_.flags.extended) {
+      out_frame.id &= uavcan::CanFrame::MaskExtID;
+      out_frame.id |= uavcan::CanFrame::FlagEFF;
     }
+    if (rx_msg_.flags.remote) {
+      out_frame.id |= uavcan::CanFrame::FlagRTR;
+    }
+    out_frame.dlc = rx_msg_.len;
+    for (int8_t i = 0; i < out_frame.dlc; i++) {
+      out_frame.data[i] = rx_msg_.buf[i];
+    }
+    return 1;
   }
+
   /*
   * Configure the hardware CAN filters. @ref CanFilterConfig.
   *
@@ -295,41 +231,29 @@ class CanIface : public internal::UavCanIface {
   */
   int16_t configureFilters(const CanFilterConfig* filter_configs,
                            uint16_t num_configs) {
-    if (num_configs > NUM_FILTERS_) {return -1;}
-    can_.setFIFOFilter(REJECT_ALL);
+    if (num_configs > MAX_NUM_RX_MB_) {return -1;}
+    can_.setMBFilter(REJECT_ALL);
     for (uint16_t i = 0; i < num_configs; i++) {
       if (filter_configs[i].id & uavcan::CanFrame::FlagEFF) {
-        if (filter_configs[i].id & uavcan::CanFrame::FlagRTR) {
-          if (!can_.setFIFOManualFilter(i, filter_configs[i].id,
-                                          filter_configs[i].mask, EXT, RTR)) {
-            return -1;
-          }
-        } else {
-          if (!can_.setFIFOManualFilter(i, filter_configs[i].id,
-                                          filter_configs[i].mask, EXT)) {
-            return -1;
-          }
-        }
+        can_.setMB(static_cast<FLEXCAN_MAILBOX>(i), RX, EXT);
+        can_.setMBManualFilter(static_cast<FLEXCAN_MAILBOX>(i),
+                              filter_configs[i].id,
+                              filter_configs[i].mask);
       } else {
-        if (filter_configs[i].id & uavcan::CanFrame::FlagRTR) {
-          if (!can_.setFIFOManualFilter(i, filter_configs[i].id,
-                                          filter_configs[i].mask, STD, RTR)) {
-            return -1;
-          }
-        } else {
-          if (!can_.setFIFOManualFilter(i, filter_configs[i].id,
-                                          filter_configs[i].mask, STD)) {
-            return -1;
-          }
-        }
+        can_.setMB(static_cast<FLEXCAN_MAILBOX>(i), RX, STD);
+        can_.setMBManualFilter(static_cast<FLEXCAN_MAILBOX>(i),
+                              filter_configs[i].id,
+                              filter_configs[i].mask);
       }
     }
     return 0;
   }
+
   /*
   * Number of available hardware filters.
   */
-  uint16_t getNumFilters() const {return NUM_FILTERS_;}
+  uint16_t getNumFilters() const {return MAX_NUM_RX_MB_;}
+
   /*
   * Continuously incrementing counter of hardware errors.
   * Arbitration lost should not be treated as a hardware error.
@@ -337,23 +261,17 @@ class CanIface : public internal::UavCanIface {
   uint64_t getErrorCount() const {return error_counter_;}
 
  protected:
-  /* On receive interrupt handler */
-  void OnReceive(const CAN_message_t &msg) {
-    if (!rx_buf_.Write(ConvertMessage(msg))) {
-      error_counter_++;
-    }
-  }
 
   /* On transmit interrupt handler */
   void OnTransmit() {
     /* Check that CAN is ready to send and that we have messages to send */
     if (tx_ready() && tx_buf_.size()) {
       /* Pop a message off the TX buffer */
-      tx_buf_.Read(&temp_msg_, 1);
+      tx_buf_.Read(&tx_msg_, 1);
       /* Check the timeout */
-      if (clock.getMonotonic() < temp_msg_.monotonic_timestamp) {
-        can_.write(static_cast<FLEXCAN_MAILBOX>(TX_MB_NUM_),
-                   ConvertMessage(temp_msg_));
+      if (clock.getMonotonic() < tx_msg_.monotonic_timestamp) {
+        can_.write(static_cast<FLEXCAN_MAILBOX>(TX_MB_),
+                   ConvertMessage(tx_msg_));
       } else {
         /* Timeout reached, still should trigger until the TX buffer is empty */
         if (tx_buf_.size()) {
@@ -363,29 +281,47 @@ class CanIface : public internal::UavCanIface {
     }
   }
 
+
  private:
-  /* Bus number */
-  int8_t bus_num_;
-  /* TX mailbox number */
-  static constexpr int8_t TX_MB_NUM_ = 14;
-  /* Maximum number of filters */
-  static constexpr int8_t NUM_FILTERS_ = 32;
-  /* IQR */
-  uint32_t irq_;
-  /* Temp message */
-  internal::CanMsg temp_msg_, tx_msg_;
+  /* CAN message */
+  struct CanMsg {
+    struct {
+      bool extended = 0;
+      bool remote = 0;
+      bool overrun = 0;
+    } flags;
+    uint8_t len = 8;
+    uint8_t buf[8] = {0};
+    uint32_t id;
+    MonotonicTime monotonic_timestamp;
+    UtcTime sync_timestamp;
+  };
   /* CAN driver */
   FlexCAN_T4<BUS, RX_SIZE_2, TX_SIZE_2> can_;
   /* Buffer sizes */
   static constexpr std::size_t BUF_SIZE_ = 256;
   /* Circular buffers to hold RX and TX messages */
-  bfs::CircleBuf<internal::CanMsg, BUF_SIZE_> rx_buf_;
-  bfs::CircleBuf<internal::CanMsg, BUF_SIZE_> tx_buf_;
+  bfs::CircleBuf<CanMsg, BUF_SIZE_> tx_buf_;
+  /* Bus number */
+  int8_t bus_num_;
+  /* Maximum number of mailboxes */
+  #if defined(__IMXRT1062__)
+  static constexpr uint8_t MAX_NUM_MB_ = 64;
+  #else
+  static constexpr uint8_t MAX_NUM_MB_ = 16;
+  #endif
+  /* Maximum number of receive mailboxes */
+  static constexpr uint8_t MAX_NUM_RX_MB_ = MAX_NUM_MB_ - 1;
+  /* TX mailbox number */
+  static constexpr uint8_t TX_MB_ = MAX_NUM_MB_ - 1;
+  /* Temp messages */
+  CanMsg tx_msg_, rx_msg_;
+  CAN_message_t temp_msg_;
   /* Error count */
   uint64_t error_counter_ = 0;
   /* Convert from CAN_message_t to CanMsg */
-  internal::CanMsg ConvertMessage(const CAN_message_t &msg) {
-    internal::CanMsg ret;
+  CanMsg ConvertMessage(const CAN_message_t &msg) {
+    CanMsg ret;
     ret.monotonic_timestamp = clock.getMonotonic();
     ret.sync_timestamp = clock.getUtc();
     ret.id = msg.id;
@@ -399,7 +335,7 @@ class CanIface : public internal::UavCanIface {
     return ret;
   }
   /* Convert from CanMsg to CAN_message_t */
-  CAN_message_t ConvertMessage(const internal::CanMsg &msg) {
+  CAN_message_t ConvertMessage(const CanMsg &msg) {
     CAN_message_t ret;
     ret.id = msg.id;
     ret.flags.extended = msg.flags.extended;
@@ -412,17 +348,18 @@ class CanIface : public internal::UavCanIface {
     return ret;
   }
 };
-/* Defining instances of CAN interface depending on number of buses available */
+/* CAN interfaces */
 #if defined(__IMXRT1062__)
-CanIface<CAN1> Can1;
-CanIface<CAN2> Can2;
-CanIface<CAN3> Can3;
+CanIface<CAN1> can1;
+CanIface<CAN2> can2;
+CanIface<CAN3> can3;
 #elif defined(__MK66FX1M0__)
-CanIface<CAN0> Can0;
-CanIface<CAN1> Can1;
+CanIface<CAN0> can0;
+CanIface<CAN1> can1;
 #else
-CanIface<CAN0> Can0;
+CanIface<CAN0> can0;
 #endif
+
 /*
 * CAN driver managing the instances, templated by the number of CAN buses to
 * use. Maximum allowed is 3 (MaxCanIfaces) defined in can.hpp.
@@ -434,15 +371,6 @@ class CanDriver : public ICanDriver {
                 "More CAN buses than maximum allowed by DroneCAN");
   CanDriver(const std::array<internal::UavCanIface *, NUM_CAN_BUS> &ref) :
             iface_(ref) {}
-  /* Initializes the CAN interfaces */
-  bool begin(const int32_t baud) {
-    for (int8_t i = 0; i < NUM_CAN_BUS; i++) {
-      if (!iface_[i]->begin(baud)) {
-        return false;
-      }
-    }
-    return true;
-  }
   /*
   * Returns an interface by index, or null pointer if the index is out of range.
   */
