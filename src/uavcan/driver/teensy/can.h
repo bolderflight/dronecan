@@ -260,16 +260,11 @@ class CanIface : public internal::UavCanIface {
   int16_t receive(CanFrame& out_frame, MonotonicTime& out_ts_monotonic,
                   UtcTime& out_ts_utc, CanIOFlags& out_flags) {
     NVIC_DISABLE_IRQ(irq_);
-    //   Serial.print("SIZE ");
-    // Serial.println(rx_buf_.size());
     bfs::optional<internal::CanMsg> read_val = rx_buf_.Read();
-
     NVIC_ENABLE_IRQ(irq_);
     
     if (read_val) {
-      // Serial.println("READ");
       if (read_val.value().flags.overrun) {
-        // Serial.println("OVERRUN");
         error_counter_++;
         return -1;
       } else {
@@ -287,11 +282,9 @@ class CanIface : public internal::UavCanIface {
         for (int8_t i = 0; i < out_frame.dlc; i++) {
           out_frame.data[i] = read_val.value().buf[i];
         }
-        // Serial.println("GOOD");
         return 1;
       }
     } else {
-      // Serial.println("NOT READ");
       return 0;
     }
   }
@@ -305,16 +298,8 @@ class CanIface : public internal::UavCanIface {
     if (num_configs > NUM_FILTERS_) {return -1;}
     can_.setFIFOFilter(REJECT_ALL);
     for (uint16_t i = 0; i < num_configs; i++) {
-      Serial.print("ID\t");
-      Serial.print(filter_configs[i].id);
-      Serial.print("\tMASK\t");
-      Serial.print(filter_configs[i].mask);
-
-
       if (filter_configs[i].id & uavcan::CanFrame::FlagEFF) {
-        Serial.print("\tEXT\t");
         if (filter_configs[i].id & uavcan::CanFrame::FlagRTR) {
-          Serial.print("\tRTR\t");
           if (!can_.setFIFOManualFilter(i, filter_configs[i].id,
                                           filter_configs[i].mask, EXT, RTR)) {
             return -1;
@@ -326,9 +311,7 @@ class CanIface : public internal::UavCanIface {
           }
         }
       } else {
-        Serial.print("\tSTD\t");
         if (filter_configs[i].id & uavcan::CanFrame::FlagRTR) {
-          Serial.print("\tRTR\t");
           if (!can_.setFIFOManualFilter(i, filter_configs[i].id,
                                           filter_configs[i].mask, STD, RTR)) {
             return -1;
@@ -340,7 +323,6 @@ class CanIface : public internal::UavCanIface {
           }
         }
       }
-      Serial.println();
     }
     return 0;
   }
