@@ -27,6 +27,7 @@
 #include "uavcan/uavcan.hpp"
 #include "uavcan/driver/teensy/clock.h"
 #include "uavcan/driver/teensy/can.h"
+#include "uavcan/driver/teensy/restart.h"
 
 /* Filter config */
 #include "uavcan/transport/can_acceptance_filter_configurator.hpp"

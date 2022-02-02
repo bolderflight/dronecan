@@ -5,6 +5,9 @@
 #ifndef UAVCAN_NODE_NODE_HPP_INCLUDED
 #define UAVCAN_NODE_NODE_HPP_INCLUDED
 
+/* To auto-include restart handler */
+#include "uavcan/driver/teensy/restart.h"
+
 #include <cassert>
 #include <uavcan/error.hpp>
 #include <uavcan/build_config.hpp>
@@ -59,6 +62,7 @@ class UAVCAN_EXPORT Node : public INode
 
     void commonInit()
     {
+        proto_rrs_.setHandler(&restart_request_handler);
         internal_failure_cnt_ = 0;
         started_ = false;
     }
