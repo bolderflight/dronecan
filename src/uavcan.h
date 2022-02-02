@@ -28,6 +28,9 @@
 #include "uavcan/driver/teensy/clock.h"
 #include "uavcan/driver/teensy/can.h"
 
+/* Filter config */
+#include "uavcan/transport/can_acceptance_filter_configurator.hpp"
+
 /* Common messages */
 #include "uavcan/equipment/actuator/ArrayCommand.hpp"
 #include "uavcan/equipment/actuator/Command.hpp"
