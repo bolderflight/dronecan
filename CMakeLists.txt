@@ -29,7 +29,7 @@ if (DEFINED MCU)
   FetchContent_Declare(
     flexcan
     GIT_REPOSITORY https://github.com/bolderflight/flexcan.git
-    GIT_TAG v1.0.1
+    GIT_TAG v1.0.2
   )
   FetchContent_MakeAvailable(flexcan)
   # Fetch circle_buf

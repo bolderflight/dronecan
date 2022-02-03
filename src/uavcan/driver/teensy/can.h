@@ -29,7 +29,7 @@
 #include <array>
 #include "uavcan/driver/can.hpp"
 #include "uavcan/driver/teensy/clock.h"
-#include "FlexCAN_T4.h"
+#include "flexcan.h"
 #include "circle_buf.h"
 
 namespace uavcan {
