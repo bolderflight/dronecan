@@ -24,13 +24,6 @@
 */
 
 #include "uavcan.h"
-#include "uavcan/transport/can_acceptance_filter_configurator.hpp"
-#include "uavcan/equipment/air_data/TrueAirspeed.hpp"
-
-/* Defines needed for restart */
-#define RESTART_ADDR       0xE000ED0C
-#define READ_RESTART()     (*(volatile uint32_t *)RESTART_ADDR)
-#define WRITE_RESTART(val) ((*(volatile uint32_t *)RESTART_ADDR) = (val))
 
 /* Node constants */
 static constexpr uint32_t NODE_ID = 2;
@@ -39,23 +32,18 @@ static constexpr uint8_t HW_VER = 1;
 static const char* NODE_NAME = "TEST";
 static const uint32_t NODE_MEM = 8192;  // size of node memory
 
+/* Classes */
+uavcan::CanDriver<1> *can;
+uavcan::Node<NODE_MEM> *node;
+uavcan::Publisher<uavcan::equipment::air_data::TrueAirspeed> *pub;
+
 /* Data message */
 uavcan::equipment::air_data::TrueAirspeed msg;
 
 /* Fake airspeed data */
 float airspeed_ms = 0;
 
-/* Function to restart Teensy, inherits from UAVCAN */
-class : public uavcan::IRestartRequestHandler {
-  bool handleRestartRequest(uavcan::NodeID request_source) override {
-    Serial.println("Got a remote restart request!");
-    WRITE_RESTART(0x5FA0004);
-    return true;
-  }
-} restart_request_handler;
-
-
-int main() {
+void setup() {
   Serial.begin(115200);
   /* Init CAN transceivers - this is HW config dependent */
   pinMode(26, OUTPUT);
@@ -63,58 +51,58 @@ int main() {
   digitalWriteFast(26, LOW);
   digitalWriteFast(27, LOW);
   /* Init CAN interface */
-  uavcan::can0.begin();
-  uavcan::can0.setBaudRate(1000000);
+  uavcan::can3.begin();
+  uavcan::can3.setBaudRate(1000000);
   /* Init CAN driver */
-  uavcan::CanDriver<1> can({&uavcan::can0});
+  can = new uavcan::CanDriver<1>({&uavcan::can3});
   /* Init Node */
-  uavcan::Node<NODE_MEM> node(can, uavcan::clock);
+  node = new uavcan::Node<NODE_MEM>(*can, uavcan::clock);
   uavcan::protocol::SoftwareVersion sw_ver;
   uavcan::protocol::HardwareVersion hw_ver;
   sw_ver.major = SW_VER;
   sw_ver.minor = 0;
   hw_ver.major = HW_VER;
   hw_ver.minor = 0;
-  node.setNodeID(NODE_ID);
-  node.setName(NODE_NAME);
-  node.setSoftwareVersion(sw_ver);
-  node.setHardwareVersion(hw_ver);
-  node.setRestartRequestHandler(&restart_request_handler);
-  if (node.start() < 0) {
+  node->setNodeID(NODE_ID);
+  node->setName(NODE_NAME);
+  node->setSoftwareVersion(sw_ver);
+  node->setHardwareVersion(hw_ver);
+  if (node->start() < 0) {
     Serial.println("ERROR starting node");
     while (1) {}
   }
   Serial.println("Node initialized");
   /* Init publisher */
-  uavcan::Publisher<uavcan::equipment::air_data::TrueAirspeed> pub(node);
-  if (pub.init() < 0) {
+  pub = new uavcan::Publisher<uavcan::equipment::air_data::TrueAirspeed>(*node);
+  if (pub->init() < 0) {
     Serial.println("ERROR initializing publisher");
     while (1) {}
   }
   Serial.println("Publisher initialized");
   /* CAN acceptance filters */
-  uavcan::configureCanAcceptanceFilters(node);
+  uavcan::configureCanAcceptanceFilters(*node);
   /* Set Node mode to operational */
-  node.setModeOperational();
+  node->setModeOperational();
   Serial.println("Setup complete");
-  while (1) {
-    /* Check the node */
-    if (node.spinOnce() < 0) {
-      Serial.println("WARNING issue spinning node");
-    }
-    /* Send the message */
-    msg.true_airspeed = airspeed_ms;
-    if (pub.broadcast(msg) < 0) {
-      Serial.println("WARNING issue publishing message");
-    } else {
-      Serial.println("Sending message");
-    }
-    /* Change the airspeed */
-    airspeed_ms++;
-    if (airspeed_ms > 40.0f) {
-      airspeed_ms = 0;
-    }
-    /* Send at 10 Hz */
-    delay(100);
+}
+
+void loop() {
+  /* Check the node */
+  if (node->spinOnce() < 0) {
+    Serial.println("WARNING issue spinning node");
   }
+  /* Send the message */
+  msg.true_airspeed = airspeed_ms;
+  if (pub->broadcast(msg) < 0) {
+    Serial.println("WARNING issue publishing message");
+  } else {
+    Serial.println("Sending message");
+  }
+  /* Change the airspeed */
+  airspeed_ms++;
+  if (airspeed_ms > 40.0f) {
+    airspeed_ms = 0;
+  }
+  /* Send at 10 Hz */
+  delay(100);
 }

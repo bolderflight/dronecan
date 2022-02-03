@@ -26,13 +26,6 @@
 /* Simple UAV CAN subscriber to receive and print true airspeed */
 
 #include "uavcan.h"
-#include "uavcan/transport/can_acceptance_filter_configurator.hpp"
-#include "uavcan/equipment/air_data/TrueAirspeed.hpp"
-
-/* Defines needed for restart */
-#define RESTART_ADDR       0xE000ED0C
-#define READ_RESTART()     (*(volatile uint32_t *)RESTART_ADDR)
-#define WRITE_RESTART(val) ((*(volatile uint32_t *)RESTART_ADDR) = (val))
 
 /* Node constants */
 static constexpr uint32_t NODE_ID = 102;
@@ -40,15 +33,6 @@ static constexpr uint8_t SW_VER = 1;
 static constexpr uint8_t HW_VER = 1;
 static const char* NODE_NAME = "TEST";
 static const uint32_t NODE_MEM = 8192;  // size of node memory
-
-/* Function to restart Teensy, inherits from UAVCAN */
-class : public uavcan::IRestartRequestHandler {
-  bool handleRestartRequest(uavcan::NodeID request_source) override {
-    Serial.println("Got a remote restart request!");
-    WRITE_RESTART(0x5FA0004);
-    return true;
-  }
-} restart_request_handler;
 
 void DataCallback(const uavcan::equipment::air_data::TrueAirspeed &ref) {
   Serial.println(ref.true_airspeed);
@@ -65,10 +49,10 @@ int main() {
   digitalWriteFast(26, LOW);
   digitalWriteFast(27, LOW);
   /* Init CAN interface */
-  uavcan::can0.begin();
-  uavcan::can0.setBaudRate(1000000);
+  uavcan::can3.begin();
+  uavcan::can3.setBaudRate(1000000);
   /* Init CAN driver */
-  uavcan::CanDriver<1> can({&uavcan::can0});
+  uavcan::CanDriver<1> can({&uavcan::can3});
   /* Init Node */
   uavcan::Node<NODE_MEM> node(can, uavcan::clock);
   uavcan::protocol::SoftwareVersion sw_ver;
@@ -81,7 +65,6 @@ int main() {
   node.setName(NODE_NAME);
   node.setSoftwareVersion(sw_ver);
   node.setHardwareVersion(hw_ver);
-  node.setRestartRequestHandler(&restart_request_handler);
   if (node.start() < 0) {
     Serial.println("ERROR starting node");
     while (1) {}

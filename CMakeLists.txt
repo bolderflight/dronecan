@@ -29,7 +29,7 @@ if (DEFINED MCU)
   FetchContent_Declare(
     flexcan
     GIT_REPOSITORY https://github.com/bolderflight/flexcan.git
-    GIT_TAG v1.0.0
+    GIT_TAG v1.0.1
   )
   FetchContent_MakeAvailable(flexcan)
   # Fetch circle_buf
@@ -58,7 +58,7 @@ if (DEFINED MCU)
   # Example and test if this project is built separately
   if (PROJECT_NAME STREQUAL CMAKE_PROJECT_NAME)
     # Add the publisher example target
-    add_executable(pub examples/pub.cc)
+    add_executable(pub examples/cmake/pub.cc)
     # Add the includes
     target_include_directories(pub PUBLIC 
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -74,7 +74,7 @@ if (DEFINED MCU)
     FlashMcu(pub ${MCU} ${mcu_support_SOURCE_DIR})
 
     # Add the subscriber example target
-    add_executable(sub examples/sub.cc)
+    add_executable(sub examples/cmake/sub.cc)
     # Add the includes
     target_include_directories(sub PUBLIC 
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
