@@ -23,29 +23,10 @@
 * IN THE SOFTWARE.
 */
 
-#ifndef SRC_UAVCAN_DRIVER_TEENSY_RESTART_H_
-#define SRC_UAVCAN_DRIVER_TEENSY_RESTART_H_
-
-#include "uavcan/protocol/restart_request_server.hpp"
-#if defined(ARDUINO)
-#include "Arduino.h"
-#else
-#include "core/core.h"
-#endif
+#include "restart.h"
 
 namespace uavcan {
 
-class RestartRequestHandler : public IRestartRequestHandler {
- public:
-  bool handleRestartRequest(NodeID request_source) {
-    SCB_AIRCR = 0x05FA0004;
-    return true;
-  }
+RestartRequestHandler restart_request_handler;
 
-};
-
-extern RestartRequestHandler restart_request_handler;
-
-}  // namespace uavcan
-
-#endif  // SRC_UAVCAN_DRIVER_TEENSY_RESTART_H_
+}  // uavcan

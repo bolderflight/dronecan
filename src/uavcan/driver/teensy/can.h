@@ -78,12 +78,11 @@ class UavCanRouter {
 
  private:
   std::array<UavCanIface *, MAX_NUM_IFACE_> iface_;
-} uav_can_router;
+};
+extern UavCanRouter uav_can_router;
 
 /* Handles TX interrupts from FlexCAN_T4 */
-void TxHandler(const CAN_message_t &msg) {
-  uav_can_router.RouteTx(msg);
-}
+void TxHandler(const CAN_message_t &msg);
 
 }  // namespace internal
 
@@ -350,14 +349,14 @@ class CanIface : public internal::UavCanIface {
 };
 /* CAN interfaces */
 #if defined(__IMXRT1062__)
-CanIface<CAN1> can1;
-CanIface<CAN2> can2;
-CanIface<CAN3> can3;
+extern CanIface<CAN1> can1;
+extern CanIface<CAN2> can2;
+extern CanIface<CAN3> can3;
 #elif defined(__MK66FX1M0__)
-CanIface<CAN0> can0;
-CanIface<CAN1> can1;
+extern CanIface<CAN0> can0;
+extern CanIface<CAN1> can1;
 #else
-CanIface<CAN0> can0;
+extern CanIface<CAN0> can0;
 #endif
 
 /*

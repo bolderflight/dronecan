@@ -23,29 +23,28 @@
 * IN THE SOFTWARE.
 */
 
-#ifndef SRC_UAVCAN_DRIVER_TEENSY_RESTART_H_
-#define SRC_UAVCAN_DRIVER_TEENSY_RESTART_H_
-
-#include "uavcan/protocol/restart_request_server.hpp"
-#if defined(ARDUINO)
-#include "Arduino.h"
-#else
-#include "core/core.h"
-#endif
+#include "can.h"
 
 namespace uavcan {
 
-class RestartRequestHandler : public IRestartRequestHandler {
- public:
-  bool handleRestartRequest(NodeID request_source) {
-    SCB_AIRCR = 0x05FA0004;
-    return true;
-  }
+namespace internal {
+/* Handles TX interrupts from FlexCAN_T4 */
+void TxHandler(const CAN_message_t &msg) {
+  uav_can_router.RouteTx(msg);
+}
+/* UAV CAN router */
+UavCanRouter uav_can_router;
+}  // internal
+/* CAN interfaces */
+#if defined(__IMXRT1062__)
+CanIface<CAN1> can1;
+CanIface<CAN2> can2;
+CanIface<CAN3> can3;
+#elif defined(__MK66FX1M0__)
+CanIface<CAN0> can0;
+CanIface<CAN1> can1;
+#else
+CanIface<CAN0> can0;
+#endif
+}  // uavcan
 
-};
-
-extern RestartRequestHandler restart_request_handler;
-
-}  // namespace uavcan
-
-#endif  // SRC_UAVCAN_DRIVER_TEENSY_RESTART_H_
