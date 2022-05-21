@@ -33,6 +33,10 @@ static constexpr uint8_t SW_VER = 1;
 static constexpr uint8_t HW_VER = 1;
 static const char* NODE_NAME = "TEST";
 static const uint32_t NODE_MEM = 8192;  // size of node memory
+uavcan::CanDriver<1> *can;
+uavcan::Node<NODE_MEM> *node;
+uavcan::CanIface<CAN3> *can3;
+uavcan::Subscriber<uavcan::equipment::air_data::TrueAirspeed> *sub;
 
 void DataCallback(const uavcan::equipment::air_data::TrueAirspeed &ref) {
   Serial.println(ref.true_airspeed);
@@ -49,42 +53,43 @@ int main() {
   digitalWriteFast(26, LOW);
   digitalWriteFast(27, LOW);
   /* Init CAN interface */
-  uavcan::can3.begin();
-  uavcan::can3.setBaudRate(1000000);
+  can3 = new uavcan::CanIface<CAN3>;
+  can3->begin();
+  can3->setBaudRate(1000000);
   /* Init CAN driver */
-  uavcan::CanDriver<1> can({&uavcan::can3});
+  can = new uavcan::CanDriver<1>({can3});
   /* Init Node */
-  uavcan::Node<NODE_MEM> node(can, uavcan::clock);
+  node = new uavcan::Node<NODE_MEM>(*can, uavcan::clock);
   uavcan::protocol::SoftwareVersion sw_ver;
   uavcan::protocol::HardwareVersion hw_ver;
   sw_ver.major = SW_VER;
   sw_ver.minor = 0;
   hw_ver.major = HW_VER;
   hw_ver.minor = 0;
-  node.setNodeID(NODE_ID);
-  node.setName(NODE_NAME);
-  node.setSoftwareVersion(sw_ver);
-  node.setHardwareVersion(hw_ver);
-  if (node.start() < 0) {
+  node->setNodeID(NODE_ID);
+  node->setName(NODE_NAME);
+  node->setSoftwareVersion(sw_ver);
+  node->setHardwareVersion(hw_ver);
+  if (node->start() < 0) {
     Serial.println("ERROR starting node");
     while (1) {}
   }
   Serial.println("Node initialized");
   /* Init subscriber */
-  uavcan::Subscriber<uavcan::equipment::air_data::TrueAirspeed> sub(node);
-  if (sub.start(DataCallback) < 0) {
+  sub = new uavcan::Subscriber<uavcan::equipment::air_data::TrueAirspeed>(*node);
+  if (sub->start(DataCallback) < 0) {
     Serial.println("ERROR initializing publisher");
     while (1) {}
   }
   Serial.println("Subscriber initialized");
   /* CAN acceptance filters */
-  uavcan::configureCanAcceptanceFilters(node);
+  uavcan::configureCanAcceptanceFilters(*node);
   /* Set Node mode to operational */
-  node.setModeOperational();
+  node->setModeOperational();
   Serial.println("Setup complete");
   while (1) {
     /* Check the node */
-    if (node.spinOnce() < 0) {
+    if (node->spinOnce() < 0) {
       Serial.println("WARNING issue spinning node");
     }
   }

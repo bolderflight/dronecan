@@ -33,10 +33,9 @@ static constexpr uint8_t SW_VER = 1;
 static constexpr uint8_t HW_VER = 1;
 static const char* NODE_NAME = "TEST";
 static const uint32_t NODE_MEM = 8192;  // size of node memory
-
-/* Classes */
 uavcan::CanDriver<1> *can;
 uavcan::Node<NODE_MEM> *node;
+uavcan::CanIface<CAN3> *can3;
 uavcan::Subscriber<uavcan::equipment::air_data::TrueAirspeed> *sub;
 
 void DataCallback(const uavcan::equipment::air_data::TrueAirspeed &ref) {
@@ -54,10 +53,11 @@ void setup() {
   digitalWriteFast(26, LOW);
   digitalWriteFast(27, LOW);
   /* Init CAN interface */
-  uavcan::can3.begin();
-  uavcan::can3.setBaudRate(1000000);
+  can3 = new uavcan::CanIface<CAN3>;
+  can3->begin();
+  can3->setBaudRate(1000000);
   /* Init CAN driver */
-  can = new uavcan::CanDriver<1>({&uavcan::can3});
+  can = new uavcan::CanDriver<1>({can3});
   /* Init Node */
   node = new uavcan::Node<NODE_MEM>(*can, uavcan::clock);
   uavcan::protocol::SoftwareVersion sw_ver;

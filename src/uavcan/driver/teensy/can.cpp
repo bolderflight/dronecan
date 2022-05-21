@@ -35,16 +35,5 @@ void TxHandler(const CAN_message_t &msg) {
 /* UAV CAN router */
 UavCanRouter uav_can_router;
 }  // internal
-/* CAN interfaces */
-#if defined(__IMXRT1062__)
-CanIface<CAN1> can1;
-CanIface<CAN2> can2;
-CanIface<CAN3> can3;
-#elif defined(__MK66FX1M0__)
-CanIface<CAN0> can0;
-CanIface<CAN1> can1;
-#else
-CanIface<CAN0> can0;
-#endif
 }  // uavcan
 

@@ -347,17 +347,6 @@ class CanIface : public internal::UavCanIface {
     return ret;
   }
 };
-/* CAN interfaces */
-#if defined(__IMXRT1062__)
-extern CanIface<CAN1> can1;
-extern CanIface<CAN2> can2;
-extern CanIface<CAN3> can3;
-#elif defined(__MK66FX1M0__)
-extern CanIface<CAN0> can0;
-extern CanIface<CAN1> can1;
-#else
-extern CanIface<CAN0> can0;
-#endif
 
 /*
 * CAN driver managing the instances, templated by the number of CAN buses to
