@@ -35,11 +35,19 @@ static const char* NODE_NAME = "TEST";
 static const uint32_t NODE_MEM = 8192;  // size of node memory
 uavcan::CanDriver<1> *can;
 uavcan::Node<NODE_MEM> *node;
-uavcan::CanIface<CAN3> *can3;
-uavcan::Subscriber<uavcan::equipment::air_data::TrueAirspeed> *sub;
+uavcan::CanIface<CAN3> can3;
+uavcan::Subscriber<uavcan::equipment::actuator::Status> *sub;
 
-void DataCallback(const uavcan::equipment::air_data::TrueAirspeed &ref) {
-  Serial.println(ref.true_airspeed);
+void DataCallback(const uavcan::equipment::actuator::Status &ref) {
+  Serial.print(ref.actuator_id);
+  Serial.print("\t");
+  Serial.print(ref.position);
+  Serial.print("\t");
+  Serial.print(ref.force);
+  Serial.print("\t");
+  Serial.print(ref.speed);
+  Serial.print("\t");
+  Serial.println(ref.power_rating_pct);
 }
 
 void setup() {
@@ -47,17 +55,11 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) {}
   Serial.println("Demo started");
-  /* Init CAN transceivers - this is HW config dependent */
-  pinMode(26, OUTPUT);
-  pinMode(27, OUTPUT);
-  digitalWriteFast(26, LOW);
-  digitalWriteFast(27, LOW);
   /* Init CAN interface */
-  can3 = new uavcan::CanIface<CAN3>;
-  can3->begin();
-  can3->setBaudRate(1000000);
+  can3.begin();
+  can3.setBaudRate(1000000);
   /* Init CAN driver */
-  can = new uavcan::CanDriver<1>({can3});
+  can = new uavcan::CanDriver<1>({&can3});
   /* Init Node */
   node = new uavcan::Node<NODE_MEM>(*can, uavcan::clock);
   uavcan::protocol::SoftwareVersion sw_ver;
@@ -76,7 +78,7 @@ void setup() {
   }
   Serial.println("Node initialized");
   /* Init subscriber */
-  sub = new uavcan::Subscriber<uavcan::equipment::air_data::TrueAirspeed>(*node);
+  sub = new uavcan::Subscriber<uavcan::equipment::actuator::Status>(*node);
   if (sub->start(DataCallback) < 0) {
     Serial.println("ERROR initializing publisher");
     while (1) {}

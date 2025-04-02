@@ -2,7 +2,7 @@
 * Brian R Taylor
 * brian.taylor@bolderflight.com
 * 
-* Copyright (c) 2022 Bolder Flight Systems Inc
+* Copyright (c) 2025 Bolder Flight Systems Inc
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the “Software”), to
@@ -25,11 +25,7 @@
 
 #include "uavcan/driver/system_clock.hpp"
 #include "uavcan/driver/teensy/clock.h"
-#if defined(ARDUINO)
 #include "Arduino.h"
-#else
-#include "core/core.h"
-#endif
 
 namespace uavcan {
 
@@ -52,10 +48,15 @@ MonotonicTime Clock::getMonotonic() const {
 }
 
 UtcTime Clock::getUtc() const {
-  return UtcTime::fromUSec(micros64() + adj_.toUSec());
+  if (!clock_set_) {
+    return UtcTime::fromUSec(0);
+  } else {
+    return UtcTime::fromUSec(micros64() + adj_.toUSec());
+  }
 }
 
 void Clock::adjustUtc(UtcDuration adjustment) {
+  clock_set_ = true;
   adj_ = adjustment;
 }
 

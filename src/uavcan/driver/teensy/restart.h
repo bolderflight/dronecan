@@ -2,7 +2,7 @@
 * Brian R Taylor
 * brian.taylor@bolderflight.com
 * 
-* Copyright (c) 2022 Bolder Flight Systems Inc
+* Copyright (c) 2025 Bolder Flight Systems Inc
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the “Software”), to
@@ -27,11 +27,7 @@
 #define SRC_UAVCAN_DRIVER_TEENSY_RESTART_H_
 
 #include "uavcan/protocol/restart_request_server.hpp"
-#if defined(ARDUINO)
 #include "Arduino.h"
-#else
-#include "core/core.h"
-#endif
 
 namespace uavcan {
 

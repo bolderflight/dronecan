@@ -2,7 +2,7 @@
 * Brian R Taylor
 * brian.taylor@bolderflight.com
 * 
-* Copyright (c) 2022 Bolder Flight Systems Inc
+* Copyright (c) 2025 Bolder Flight Systems Inc
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the “Software”), to
@@ -29,124 +29,46 @@
 #include <array>
 #include "uavcan/driver/can.hpp"
 #include "uavcan/driver/teensy/clock.h"
-#include "flexcan.h"
-#include "circle_buf.h"
+#include "FlexCAN_T4.h"
 
 namespace uavcan {
 
-/* Utilities needed to route messages from interrupt */
-namespace internal {
-
-/*
-* Maximum number of buses, really it's 3, but on Teensy 4.x, the buses are
-* numbered CAN1, CAN2, CAN3 instead of base 0.
-*/
-static constexpr int8_t MAX_NUM_IFACE_ = 4;
-static constexpr int8_t MAX_IFACE_INDEX_ = MAX_NUM_IFACE_ - 1;
-
-/* Interface for CAN implementation */
 class UavCanIface : public ICanIface {
-  friend class UavCanRouter;
  public:
   /* Returns true if available to send a message */
   virtual bool available_to_send() = 0;
   /* Returns true if message sitting in read buffer */
   virtual bool available_to_read() = 0;
-
- protected:
-  /* OnTransmit interrupt handlers */
-  virtual void OnTransmit() = 0;
 };
-
-/*
-* Manages an address book of UavCanIface derived classes based on bus number
-* and routes messages to the correct one.
-*/
-class UavCanRouter {
- public:
-  /* Registers an UavCanIface derived class with the router by bus number */
-  bool Register(const int8_t bus_num, UavCanIface * can) {
-    if ((bus_num < 0) || (bus_num > MAX_IFACE_INDEX_)) {return false;}
-    iface_[bus_num] = can;
-    return true;
-  }
-
-  /* Routes on transmit interrupts to the correct UavCanIface derived class */
-  void RouteTx(const CAN_message_t &msg) {
-    iface_[msg.bus]->OnTransmit();
-  }
-
- private:
-  std::array<UavCanIface *, MAX_NUM_IFACE_> iface_;
-};
-extern UavCanRouter uav_can_router;
-
-/* Handles TX interrupts from FlexCAN_T4 */
-void TxHandler(const CAN_message_t &msg);
-
-}  // namespace internal
 
 /* CAN interface implementation, templated by CAN bus and buffer sizes */
 template<CAN_DEV_TABLE BUS>
-class CanIface : public internal::UavCanIface {
+class CanIface : public UavCanIface {
  public:
-  CanIface() {
-    /* Figuring out the bus number */
-    if (BUS == CAN0) {
-      bus_num_ = 0;
-    } else if (BUS == CAN1) {
-      bus_num_ = 1;
-    } else if (BUS == CAN2) {
-      bus_num_ = 2;
-    } else if (BUS == CAN3) {
-      bus_num_ = 3;
-    }
-  }
-
+  CanIface() {}
   /* Initialize CAN bus */
   void begin() {
     /* Initialize CAN */
     can_.begin();
-    /* Setup mailboxes */
     can_.setMaxMB(MAX_NUM_MB_);
     for (uint8_t i = 0; i < MAX_NUM_RX_MB_; i++) {
       can_.setMB(static_cast<FLEXCAN_MAILBOX>(i), RX, EXT);
     }
     can_.setMB(static_cast<FLEXCAN_MAILBOX>(TX_MB_), TX);
-    /* Register with router */
-    internal::uav_can_router.Register(bus_num_, this);
-    /* Register interrupts */
-    can_.onTransmit(internal::TxHandler);
   }
-
   /* Set alternative TX and RX pins */
   void setTX(FLEXCAN_PINS pin = DEF) {can_.setTX(pin);}
   void setRX(FLEXCAN_PINS pin = DEF) {can_.setRX(pin);}
-
   /* Set the baudrate */
   void setBaudRate(const int32_t baud) {can_.setBaudRate(baud);}
-
-  /* Returns true if the TX mailbox is ready to transmit */
-  bool tx_ready() {
-    return (FLEXCAN_get_code(FLEXCANb_MBn_CS(BUS, TX_MB_)) ==
-            FLEXCAN_MB_CODE_TX_INACTIVE);
-  }
-
-  /* Returns slots available in send message buffer */
+  /* Returns true if slots available in send message buffer */
   bool available_to_send() {
-    return (tx_buf_.capacity() - tx_buf_.size()) > 0;
+    return (can_.getTXQueueCount() < static_cast<uint16_t>(TX_SIZE_64));
   }
-
-  /* Returns number of message available to read */
+  /* Returns true if message available to read */
   bool available_to_read() {
-    bool ret = false;
-    if (can_.read(temp_msg_) > 0) {
-      ret = true;
-      rx_msg_ = ConvertMessage(temp_msg_);
-    }
-    return ret;
+    return can_.read(rx_msg_);
   }
-
   /*
   * Non-blocking transmission.
   *
@@ -163,7 +85,7 @@ class CanIface : public internal::UavCanIface {
   int16_t send(const CanFrame& frame, MonotonicTime tx_deadline,
                CanIOFlags flags) {
     /* Checking the transmit deadline */
-    if (clock.getMonotonic() >= tx_deadline) {
+    if ((!tx_deadline.isZero()) && (clock.getMonotonic() >= tx_deadline)) {
       return -1;
     }
     /* Build the message */
@@ -174,17 +96,9 @@ class CanIface : public internal::UavCanIface {
     for (int8_t i = 0; i < tx_msg_.len; i++) {
       tx_msg_.buf[i] = frame.data[i];
     }
-    tx_msg_.monotonic_timestamp = tx_deadline;
-    /* Check to see if we can transmit immediately */
-    if (tx_ready()) {
-      can_.write(static_cast<FLEXCAN_MAILBOX>(TX_MB_),
-                 ConvertMessage(tx_msg_));
-      return 1;
-    } else {
-      return tx_buf_.Write(tx_msg_);
-    }
+    int16_t ret = can_.write(tx_msg_);
+    return ret;
   }
-
   /*
   * Non-blocking reception.
   *
@@ -206,8 +120,8 @@ class CanIface : public internal::UavCanIface {
   */
   int16_t receive(CanFrame& out_frame, MonotonicTime& out_ts_monotonic,
                   UtcTime& out_ts_utc, CanIOFlags& out_flags) {
-    out_ts_monotonic = rx_msg_.monotonic_timestamp;
-    out_ts_utc = rx_msg_.sync_timestamp;
+    out_ts_monotonic = clock.getMonotonic();;
+    out_ts_utc = clock.getUtc();
     out_frame.id = rx_msg_.id;
     if (rx_msg_.flags.extended) {
       out_frame.id &= uavcan::CanFrame::MaskExtID;
@@ -235,75 +149,30 @@ class CanIface : public internal::UavCanIface {
     for (uint16_t i = 0; i < num_configs; i++) {
       if (filter_configs[i].id & uavcan::CanFrame::FlagEFF) {
         can_.setMB(static_cast<FLEXCAN_MAILBOX>(i), RX, EXT);
-        can_.setMBManualFilter(static_cast<FLEXCAN_MAILBOX>(i),
-                              filter_configs[i].id,
-                              filter_configs[i].mask);
+        can_.setMBManualFilter(static_cast<FLEXCAN_MAILBOX>(i), filter_configs[i].id, filter_configs[i].mask);
       } else {
         can_.setMB(static_cast<FLEXCAN_MAILBOX>(i), RX, STD);
-        can_.setMBManualFilter(static_cast<FLEXCAN_MAILBOX>(i),
-                              filter_configs[i].id,
-                              filter_configs[i].mask);
+        can_.setMBManualFilter(static_cast<FLEXCAN_MAILBOX>(i), filter_configs[i].id, filter_configs[i].mask);
       }
     }
     return 0;
   }
-
   /*
   * Number of available hardware filters.
   */
   uint16_t getNumFilters() const {return MAX_NUM_RX_MB_;}
-
   /*
   * Continuously incrementing counter of hardware errors.
   * Arbitration lost should not be treated as a hardware error.
   */
   uint64_t getErrorCount() const {return error_counter_;}
 
- protected:
-
-  /* On transmit interrupt handler */
-  void OnTransmit() {
-    /* Check that CAN is ready to send and that we have messages to send */
-    if (tx_ready() && tx_buf_.size()) {
-      /* Pop a message off the TX buffer */
-      tx_buf_.Read(&tx_msg_, 1);
-      /* Check the timeout */
-      if (clock.getMonotonic() < tx_msg_.monotonic_timestamp) {
-        can_.write(static_cast<FLEXCAN_MAILBOX>(TX_MB_),
-                   ConvertMessage(tx_msg_));
-      } else {
-        /* Timeout reached, still should trigger until the TX buffer is empty */
-        if (tx_buf_.size()) {
-          OnTransmit();
-        }
-      }
-    }
-  }
-
-
  private:
-  /* CAN message */
-  struct CanMsg {
-    struct {
-      bool extended = 0;
-      bool remote = 0;
-      bool overrun = 0;
-    } flags;
-    uint8_t len = 8;
-    uint8_t buf[8] = {0};
-    uint32_t id;
-    MonotonicTime monotonic_timestamp;
-    UtcTime sync_timestamp;
-  };
   /* CAN driver */
-  FlexCAN_T4<BUS, RX_SIZE_2, TX_SIZE_2> can_;
-  /* Buffer sizes */
-  static constexpr std::size_t BUF_SIZE_ = 256;
-  /* Circular buffers to hold RX and TX messages */
-  bfs::CircleBuf<CanMsg, BUF_SIZE_> tx_buf_;
-  /* Bus number */
-  int8_t bus_num_;
-  /* Maximum number of mailboxes */
+  FlexCAN_T4<BUS, RX_SIZE_16, TX_SIZE_64> can_;
+  /* Flag for message available */
+  bool msg_avail_ = false;
+  /* Maximum number of total mailboxes */
   #if defined(__IMXRT1062__)
   static constexpr uint8_t MAX_NUM_MB_ = 64;
   #else
@@ -313,39 +182,10 @@ class CanIface : public internal::UavCanIface {
   static constexpr uint8_t MAX_NUM_RX_MB_ = MAX_NUM_MB_ - 1;
   /* TX mailbox number */
   static constexpr uint8_t TX_MB_ = MAX_NUM_MB_ - 1;
-  /* Temp messages */
-  CanMsg tx_msg_, rx_msg_;
-  CAN_message_t temp_msg_;
   /* Error count */
   uint64_t error_counter_ = 0;
-  /* Convert from CAN_message_t to CanMsg */
-  CanMsg ConvertMessage(const CAN_message_t &msg) {
-    CanMsg ret;
-    ret.monotonic_timestamp = clock.getMonotonic();
-    ret.sync_timestamp = clock.getUtc();
-    ret.id = msg.id;
-    ret.flags.extended = msg.flags.extended;
-    ret.flags.remote = msg.flags.remote;
-    ret.flags.overrun = msg.flags.overrun;
-    ret.len = msg.len;
-    for (std::size_t i = 0; i < ret.len; i++) {
-      ret.buf[i] = msg.buf[i];
-    }
-    return ret;
-  }
-  /* Convert from CanMsg to CAN_message_t */
-  CAN_message_t ConvertMessage(const CanMsg &msg) {
-    CAN_message_t ret;
-    ret.id = msg.id;
-    ret.flags.extended = msg.flags.extended;
-    ret.flags.remote = msg.flags.remote;
-    ret.flags.overrun = msg.flags.overrun;
-    ret.len = msg.len;
-    for (std::size_t i = 0; i < ret.len; i++) {
-      ret.buf[i] = msg.buf[i];
-    }
-    return ret;
-  }
+  /* Temporary messages */
+  CAN_message_t tx_msg_, rx_msg_;
 };
 
 /*
@@ -357,8 +197,7 @@ class CanDriver : public ICanDriver {
  public:
   static_assert(NUM_CAN_BUS <= MaxCanIfaces,
                 "More CAN buses than maximum allowed by DroneCAN");
-  CanDriver(const std::array<internal::UavCanIface *, NUM_CAN_BUS> &ref) :
-            iface_(ref) {}
+  CanDriver(const std::array<UavCanIface *, NUM_CAN_BUS> &ref) : iface_(ref) {}
   /*
   * Returns an interface by index, or null pointer if the index is out of range.
   */
@@ -398,8 +237,7 @@ class CanDriver : public ICanDriver {
   int16_t select(CanSelectMasks& inout_masks,
                  const CanFrame* (& pending_tx)[MaxCanIfaces],
                  MonotonicTime blocking_deadline) {
-    while ((clock.getMonotonic() < blocking_deadline) ||
-           (blocking_deadline.isZero())) {
+    while ((clock.getMonotonic() < blocking_deadline) || (blocking_deadline.isZero())) {
       ready_iface_rx_ = 0;
       ready_iface_tx_ = 0;
       inout_masks.read = 0;
@@ -423,7 +261,7 @@ class CanDriver : public ICanDriver {
   }
 
  private:
-  std::array<internal::UavCanIface *, NUM_CAN_BUS> iface_;
+  std::array<UavCanIface *, NUM_CAN_BUS> iface_;
   int16_t ready_iface_rx_;
   int16_t ready_iface_tx_;
   int16_t ready_iface_;

@@ -3,3 +3,5 @@
 
 # ignore VS code
 .vscode
+
+.DS_STORE

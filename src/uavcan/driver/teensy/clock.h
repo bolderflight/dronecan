@@ -2,7 +2,7 @@
 * Brian R Taylor
 * brian.taylor@bolderflight.com
 * 
-* Copyright (c) 2022 Bolder Flight Systems Inc
+* Copyright (c) 2025 Bolder Flight Systems Inc
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy
 * of this software and associated documentation files (the “Software”), to
@@ -67,6 +67,7 @@ class Clock : public ISystemClock, public Noncopyable {
   void adjustUtc(UtcDuration adjustment);
   
  private:
+  bool clock_set_ = false;
   UtcDuration adj_ = UtcDuration::fromUSec(0);
 };
 
